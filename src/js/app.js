@@ -20,6 +20,29 @@ import "codemirror/addon/mode/simple";
 import jose from "node-jose";
 import LocalStorage from "./LocalStorage.js";
 import rdg from "./random-data-generator";
+import {
+  JWT_REGEX as re,
+  signingAlgs,
+  keyEncryptionAlgs,
+  contentEncryptionAlgs,
+  rsaKeyEncryptionAlgs,
+  ecdhKeyEncryptionAlgs,
+  pbes2KeyEncryptionAlgs,
+  kwKeyEncryptionAlgs,
+  hmacSigningAlgs,
+  rsaSigningAlgs,
+  quantify,
+  reformIndents,
+  timeAgo,
+  formatTimeString,
+  requiredKeyBitsForAlg,
+  looksLikePem,
+  looksLikeJwks,
+  checkValidityReasons,
+  keysAreCompatible,
+  isSymmetric,
+  looksLikeJwt,
+} from "./jwt-utils.js";
 const html5AppId = "41bd71c8-2643-4e17-bc14-c8c48e37eb0f";
 
 const storage = LocalStorage.init(html5AppId);
@@ -50,21 +73,6 @@ const PBKDF2_SALT_DEFAULT = "abcdefghijkl",
   ITERATION_MAX = 100001,
   ITERATION_MIN = 50;
 
-const re = {
-  signed: {
-    jwt: new RegExp("^([^\\.]+)\\.([^\\.]+)\\.([^\\.]+)$"),
-    cm: new RegExp("^([^\\.]+)(\\.)([^\\.]+)(\\.)([^\\.]+)$"),
-  },
-  encrypted: {
-    jwt: new RegExp(
-      "^([^\\.]+)\\.([^\\.]*)\\.([^\\.]+)\\.([^\\.]+)\\.([^\\.]+)$",
-    ),
-    cm: new RegExp(
-      "^([^\\.]+)(\\.)([^\\.]*)(\\.)([^\\.]+)(\\.)([^\\.]+)(\\.)([^\\.]+)$",
-    ),
-  },
-};
-
 const $sel = (query) => document.querySelector(query),
   $all = (query) => document.querySelectorAll(query),
   hide = (el) => {
@@ -75,39 +83,6 @@ const $sel = (query) => document.querySelector(query),
     el.classList.remove("hidden");
     el.classList.add("show");
   };
-
-function algPermutations(prefixes) {
-  return prefixes.reduce(
-    (a, v) => [...a, ...[256, 384, 512].map((x) => v + x)],
-    [],
-  );
-}
-
-const rsaSigningAlgs = algPermutations(["RS", "PS"]),
-  ecdsaSigningAlgs = algPermutations(["ES"]),
-  hmacSigningAlgs = algPermutations(["HS"]),
-  signingAlgs = [...rsaSigningAlgs, ...ecdsaSigningAlgs, ...hmacSigningAlgs],
-  rsaKeyEncryptionAlgs = ["RSA-OAEP", "RSA-OAEP-256"],
-  ecdhKeyEncryptionAlgs = ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A256KW"], // 'ECDH-ES+A192KW' not supported
-  pbes2KeyEncryptionAlgs = [
-    "PBES2-HS256+A128KW",
-    "PBES2-HS384+A192KW",
-    "PBES2-HS512+A256KW",
-  ],
-  kwKeyEncryptionAlgs = ["A128KW", "A256KW", "A128GCMKW", "A256GCMKW"],
-  keyEncryptionAlgs = [
-    ...rsaKeyEncryptionAlgs,
-    ...pbes2KeyEncryptionAlgs,
-    ...kwKeyEncryptionAlgs,
-    ...ecdhKeyEncryptionAlgs,
-    "dir",
-  ],
-  contentEncryptionAlgs = [
-    "A128CBC-HS256",
-    "A256CBC-HS512",
-    "A128GCM",
-    "A256GCM",
-  ];
 
 const editors = {}; // codemirror editors
 
@@ -140,97 +115,6 @@ const curry =
   (fn, arg1) =>
   (...args) =>
     fn.apply(this, [arg1].concat(args));
-
-const quantify = (quantity, term) => {
-  const termIsPlural = term.endsWith("s"),
-    quantityIsPlural = quantity != 1 && quantity != -1;
-  if (termIsPlural && !quantityIsPlural) return term.slice(0, -1);
-  return !termIsPlural && quantityIsPlural ? term + "s" : term;
-};
-
-function reformIndents(s) {
-  const s2 = s
-    .split(new RegExp("\n", "g"))
-    .map((s) => s.trim())
-    .join("\n");
-  return s2.trim();
-}
-
-function timeAgo(time) {
-  const diffSec = Math.round((time.getTime() - Date.now()) / 1000);
-  const rtf = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
-  const abs = Math.abs(diffSec);
-  if (abs >= 86400 * 365) {
-    return rtf.format(Math.round(diffSec / (86400 * 365)), "year");
-  }
-  if (abs >= 86400 * 30) {
-    return rtf.format(Math.round(diffSec / (86400 * 30)), "month");
-  }
-  if (abs >= 86400 * 7) {
-    return rtf.format(Math.round(diffSec / (86400 * 7)), "week");
-  }
-  if (abs >= 86400) {
-    return rtf.format(Math.round(diffSec / 86400), "day");
-  }
-  if (abs >= 3600) {
-    return rtf.format(Math.round(diffSec / 3600), "hour");
-  }
-  if (abs >= 60) {
-    return rtf.format(Math.round(diffSec / 60), "minute");
-  }
-  return rtf.format(diffSec, "second");
-}
-
-function formatTimeString(time) {
-  return time.toISOString().replace(".000Z", "Z");
-}
-
-function hmacToKeyBits(alg) {
-  switch (alg) {
-    case "HS256":
-      return 256;
-    case "HS384":
-      return 384;
-    case "HS512":
-      return 512;
-  }
-  return 9999999;
-}
-
-function requiredKeyBitsForAlg(alg) {
-  if (alg.startsWith("PBES2")) {
-    const hmac = alg.substring(6, 11);
-    return hmacToKeyBits(hmac);
-  }
-  if (alg.startsWith("HS")) {
-    return hmacToKeyBits(alg);
-  }
-  switch (alg) {
-    case "A128CBC-HS256":
-      return 256;
-    case "A192CBC-HS384":
-      return 384;
-    case "A256CBC-HS512":
-      return 512;
-    case "A128GCM":
-      return 128;
-    case "A192GCM":
-      return 192;
-    case "A256GCM":
-      return 256;
-    case "A128KW":
-      return 128;
-    case "A192KW":
-      return 192;
-    case "A256KW":
-      return 256;
-    case "A128GCMKW":
-      return 128;
-    case "A256GCMKW":
-      return 256;
-  }
-  return 99999;
-}
 
 function getPbkdf2IterationCount() {
   const icountvalue = $sel("#ta_pbkdf2_iterations").value.trim();
@@ -316,29 +200,6 @@ function getBufferForSymmetricKey(item, alg) {
   }
 
   throw new Error("unknown key encoding: " + coding); // will not happen
-}
-
-function looksLikePem(s) {
-  s = s.trim();
-  const looksLike =
-    (s.startsWith("-----BEGIN PRIVATE KEY-----") &&
-      s.endsWith("-----END PRIVATE KEY-----")) ||
-    (s.startsWith("-----BEGIN PUBLIC KEY-----") &&
-      s.endsWith("-----END PUBLIC KEY-----")) ||
-    (s.startsWith("-----BEGIN RSA PUBLIC KEY-----") &&
-      s.endsWith("-----END RSA PUBLIC KEY-----")) ||
-    (s.startsWith("-----BEGIN RSA PRIVATE KEY-----") &&
-      s.endsWith("-----END RSA PRIVATE KEY-----"));
-  return looksLike;
-}
-
-function looksLikeJwks(s) {
-  try {
-    s = JSON.parse(s);
-    return s.keys && s.keys.length > 0 && s.keys[0].kty ? s : null;
-  } catch (_exc1) {
-    return false;
-  }
 }
 
 function getPrivateKey(header, options) {
@@ -488,8 +349,6 @@ const pickKeyEncryptionAlg = (key) =>
 
 const pickContentEncryptionAlg = () =>
   datamodel["sel-enc"] || rdg.arrayItem(contentEncryptionAlgs);
-
-const isSymmetric = (alg) => alg.startsWith("HS");
 
 function checkKeyLength(alg, exact, keybuffer) {
   const length = keybuffer.byteLength,
@@ -673,63 +532,6 @@ function encodeJwt(_event) {
       //console.log(e.stack);
       setAlert(e);
     });
-}
-
-function checkValidityReasons(pHeader, pPayload, acceptableAlgorithms) {
-  const nowSeconds = Math.floor(new Date().valueOf() / 1000),
-    wantCheckIat = true,
-    reasons = [];
-
-  // 4. algorithm ('alg' in header) check
-  if (pHeader.alg === undefined) {
-    reasons.push("the header lacks the required alg property");
-  }
-
-  if (acceptableAlgorithms.indexOf(pHeader.alg) < 0) {
-    reasons.push(`the algorithm is (${pHeader.alg}) not acceptable`);
-  }
-
-  // 8.1 expired time 'exp' check
-  if (pPayload.exp !== undefined && typeof pPayload.exp == "number") {
-    const expiry = new Date(pPayload.exp * 1000),
-      expiresString = formatTimeString(expiry),
-      delta = nowSeconds - pPayload.exp,
-      timeUnit = quantify(delta, "seconds");
-    if (delta > 0) {
-      reasons.push(
-        `the expiry time (${expiresString}) is in the past, ${delta} ${timeUnit} ago`,
-      );
-    }
-  }
-
-  // 8.2 not before time 'nbf' check
-  if (pPayload.nbf !== undefined && typeof pPayload.nbf == "number") {
-    const notBefore = new Date(pPayload.nbf * 1000),
-      notBeforeString = formatTimeString(notBefore),
-      delta = pPayload.nbf - nowSeconds,
-      timeUnit = quantify(delta, "seconds");
-    if (delta > 0) {
-      reasons.push(
-        `the not-before time (${notBeforeString}) is in the future, in ${delta} ${timeUnit}`,
-      );
-    }
-  }
-
-  // 8.3 issued at time 'iat' check
-  if (wantCheckIat) {
-    if (pPayload.iat !== undefined && typeof pPayload.iat == "number") {
-      const issuedAt = new Date(pPayload.iat * 1000),
-        issuedAtString = formatTimeString(issuedAt),
-        delta = pPayload.iat - nowSeconds,
-        timeUnit = quantify(delta, "seconds");
-      if (delta > 0) {
-        reasons.push(
-          `the issued-at time (${issuedAtString}) is in the future, in ${delta} ${timeUnit}`,
-        );
-      }
-    }
-  }
-  return reasons;
 }
 
 function verifyJwt(event) {
@@ -1255,15 +1057,6 @@ function populateAlgorithmSelectOptions() {
   setTimeout(() => $selAlg.dispatchEvent(new Event("change")), 1);
 }
 
-function keysAreCompatible(alg1, alg2) {
-  const prefix1 = alg1.substring(0, 2),
-    prefix2 = alg2.substring(0, 2);
-  if (["RS", "PS"].indexOf(prefix1) >= 0 && ["RS", "PS"].indexOf(prefix2) >= 0)
-    return true;
-  if (prefix1 == "ES") return alg1 == alg2;
-  return false;
-}
-
 function changeKeyCoding(event) {
   // fires for changes in coding for either key (dir, symmetric) or salt  (for PBKDF2)
   const sourceElement = event.currentTarget;
@@ -1698,20 +1491,6 @@ function decoratePayload(_instance) {
 
     span.addEventListener("mouseleave", maybeDismiss);
   });
-}
-
-function looksLikeJwt(possibleJwt) {
-  if (!possibleJwt) return false;
-  if (possibleJwt == "") return false;
-  let matches = re.signed.jwt.exec(possibleJwt);
-  if (matches && matches.length == 4) {
-    return true;
-  }
-  matches = re.encrypted.jwt.exec(possibleJwt);
-  if (matches && matches.length == 6) {
-    return true;
-  }
-  return false;
 }
 
 function retrieveLocalState() {

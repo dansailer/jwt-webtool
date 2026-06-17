@@ -4,11 +4,29 @@ const path = require("path");
 const webpack = require("webpack");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const CopyPlugin = require("copy-webpack-plugin");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
 const childProcess = require("child_process");
 const packageVersion = require("./package.json").version;
 const buildVersion = childProcess
   .execSync("git rev-list HEAD --count")
-  .toString();
+  .toString()
+  .trim();
+
+function normalizeBaseUrl(raw) {
+  if (!raw || raw === "/") {
+    return "/";
+  }
+  let base = raw;
+  if (!base.startsWith("/")) {
+    base = `/${base}`;
+  }
+  if (!base.endsWith("/")) {
+    base += "/";
+  }
+  return base;
+}
+
+const baseUrl = normalizeBaseUrl(process.env.BASE_URL);
 
 function makeConfig(mode) {
   let config = {
@@ -18,7 +36,9 @@ function makeConfig(mode) {
 
     output: {
       path: path.resolve("dist"),
-      filename: "js/main.js",
+      filename: "js/[name].js",
+      publicPath: baseUrl,
+      clean: true,
     },
 
     module: {
@@ -28,11 +48,10 @@ function makeConfig(mode) {
           type: "asset",
           parser: {
             dataUrlCondition: {
-              maxSize: 8 * 1024, // in bytes
+              maxSize: 8 * 1024,
             },
           },
           generator: {
-            // the file path to use when emitting a file
             filename: "assets/[hash][ext][query]",
           },
         },
@@ -43,7 +62,7 @@ function makeConfig(mode) {
               loader: MiniCssExtractPlugin.loader,
               options: {
                 esModule: false,
-                publicPath: "../", // prepend this to url() in the CSS
+                publicPath: "../",
               },
             },
             "css-loader",
@@ -54,9 +73,16 @@ function makeConfig(mode) {
     },
 
     plugins: [
+      new HtmlWebpackPlugin({
+        template: "./src/index.html",
+        inject: "body",
+        scriptLoading: "blocking",
+        templateParameters: {
+          BASE_URL: baseUrl,
+        },
+      }),
       new CopyPlugin({
         patterns: [
-          { from: "src/index.html", to: "index.html" },
           { from: "src/favicon.svg", to: "favicon.svg" },
           {
             from: "src/assets/forkme_right_gray.png",
@@ -64,12 +90,12 @@ function makeConfig(mode) {
           },
         ],
       }),
-
       new MiniCssExtractPlugin({
         filename: "css/[name].css",
       }),
       new webpack.DefinePlugin({
-        BUILD_VERSION: JSON.stringify(packageVersion + "." + buildVersion),
+        BUILD_VERSION: JSON.stringify(`${packageVersion}.${buildVersion}`),
+        BASE_URL: JSON.stringify(baseUrl),
       }),
     ],
   };

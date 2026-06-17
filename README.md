@@ -122,6 +122,42 @@ To build a production distribution:
 pnpm run build
 ```
 
+By default, asset paths are rooted at `/`. To build for a subpath deployment
+such as GitHub Pages project sites, set `BASE_URL`:
+
+```
+BASE_URL=/jwt-webtool/ pnpm run build:pages
+```
+
+The CI workflow builds with `BASE_URL=/<repository-name>/` automatically when
+deploying to GitHub Pages.
+
+## Testing
+
+Run the unit test suite with:
+
+```
+pnpm test
+```
+
+For watch mode during development:
+
+```
+pnpm run test:watch
+```
+
+## GitHub Pages
+
+The `.github/workflows/ci.yml` workflow runs tests, security audit, and build
+checks on every push and pull request. Pushes to `main` also deploy the built
+`dist/` directory to GitHub Pages.
+
+After the first successful deploy, enable Pages in the repository settings with
+**Source: GitHub Actions**.
+
+For a manual redeploy with a custom base path, use **Actions → CI and GitHub
+Pages → Run workflow** and set `base_url` (for example `/` or `/jwt-webtool/`).
+
 ## Warnings
 
 When you run `pnpm run build` or `pnpm run watch` you may see warnings, especiall
