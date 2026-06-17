@@ -8,11 +8,13 @@
   },
   "main": "webpack.config.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "watch": "webpack --output-pathinfo --devtool source-map --mode=development --watch --color",
     "devbuild": "webpack --output-pathinfo --devtool source-map --mode=development --progress --color",
-    "build": "shx rm -fr dist && webpack --mode=production --progress --color",
-    "clean": "shx rm -f pnpm-lock.yaml && shx rm -fr node_modules"
+    "build": "webpack --mode=production --progress --color",
+    "build:pages": "webpack --mode=production --progress --color",
+    "clean": "shx rm -f pnpm-lock.yaml && shx rm -fr node_modules dist"
   },
   "keywords": ["JWT", "node-jose"],
   "author": "Dino Chiesa <dchiesa@google.com>",
@@ -27,10 +29,13 @@
   "devDependencies": {
     "copy-webpack-plugin": "^13.0.1",
     "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.3",
+    "jsdom": "^26.1.0",
     "mini-css-extract-plugin": "^2.9.4",
     "shx": "^0.4.0",
     "sass": "^1.83.0",
     "sass-loader": "^16.0.6",
+    "vitest": "^3.2.4",
     "webpack": "^5.102.1",
     "webpack-cli": "^4.10.0"
   },
