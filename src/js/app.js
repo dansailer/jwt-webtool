@@ -13,18 +13,13 @@
 // limitations under the License.
 //
 
-import { _Tooltip, Popover } from "bootstrap";
+import { Popover } from "bootstrap";
 import CodeMirror from "codemirror/lib/codemirror.js";
 import "codemirror/mode/javascript/javascript";
 import "codemirror/addon/mode/simple";
 import jose from "node-jose";
 import LocalStorage from "./LocalStorage.js";
 import rdg from "./random-data-generator";
-import TimeAgo from "javascript-time-ago";
-import en from "javascript-time-ago/locale/en";
-
-TimeAgo.addDefaultLocale(en);
-
 const html5AppId = "41bd71c8-2643-4e17-bc14-c8c48e37eb0f";
 
 const storage = LocalStorage.init(html5AppId);
@@ -162,7 +157,28 @@ function reformIndents(s) {
 }
 
 function timeAgo(time) {
-  return new TimeAgo("en-US").format(time);
+  const diffSec = Math.round((time.getTime() - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
+  const abs = Math.abs(diffSec);
+  if (abs >= 86400 * 365) {
+    return rtf.format(Math.round(diffSec / (86400 * 365)), "year");
+  }
+  if (abs >= 86400 * 30) {
+    return rtf.format(Math.round(diffSec / (86400 * 30)), "month");
+  }
+  if (abs >= 86400 * 7) {
+    return rtf.format(Math.round(diffSec / (86400 * 7)), "week");
+  }
+  if (abs >= 86400) {
+    return rtf.format(Math.round(diffSec / 86400), "day");
+  }
+  if (abs >= 3600) {
+    return rtf.format(Math.round(diffSec / 3600), "hour");
+  }
+  if (abs >= 60) {
+    return rtf.format(Math.round(diffSec / 60), "minute");
+  }
+  return rtf.format(diffSec, "second");
 }
 
 function formatTimeString(time) {
@@ -371,19 +387,44 @@ function clearTextarea(event) {
   }
 }
 
-function copyToClipboard(event) {
+function flashCopySuccess(event, $source) {
+  const icon = event.currentTarget.querySelector("span.bi");
+  if (icon && icon.classList.contains("bi-clipboard")) {
+    icon.classList.remove("bi-clipboard");
+    icon.classList.add("bi-clipboard-check");
+    setTimeout(() => {
+      icon.classList.remove("bi-clipboard-check");
+      icon.classList.add("bi-clipboard");
+    }, 1800);
+  }
+
+  const $putativeCmdiv = $source.nextElementSibling;
+  if (
+    $putativeCmdiv.tagName.toLowerCase() == "div" &&
+    $putativeCmdiv.classList.contains("CodeMirror")
+  ) {
+    const $divToFlash = $putativeCmdiv.querySelector(".CodeMirror-code");
+    $divToFlash.classList.remove("copy-to-clipboard-flash-bg");
+    setTimeout(
+      (_) => $divToFlash.classList.add("copy-to-clipboard-flash-bg"),
+      6,
+    );
+  } else {
+    $source.classList.add("copy-to-clipboard-flash-bg");
+    setTimeout(
+      (_) => $source.classList.remove("copy-to-clipboard-flash-bg"),
+      1800,
+    );
+  }
+}
+
+async function copyToClipboard(event) {
   const sourceElement = event.currentTarget.getAttribute("data-target"),
-    $source = document.getElementById(sourceElement),
-    $temp = document.createElement("textarea");
+    $source = document.getElementById(sourceElement);
 
   if (editors[sourceElement]) {
     editors[sourceElement].save();
   }
-
-  gtag("event", "copyToClipboard", {
-    event_category: "click",
-    event_label: sourceElement,
-  });
 
   const sourceType = $source.tagName;
   const textToCopy =
@@ -391,61 +432,25 @@ function copyToClipboard(event) {
       ? $source.value
       : $source.text;
 
-  $sel("body").appendChild($temp);
-  $temp.value = textToCopy;
-  $temp.select();
-  let success;
+  let success = false;
   try {
-    success = document.execCommand("copy");
-
-    if (success) {
-      const icon = event.currentTarget.querySelector("span.bi");
-      if (icon && icon.classList.contains("bi-clipboard")) {
-        icon.classList.remove("bi-clipboard");
-        icon.classList.add("bi-clipboard-check");
-        setTimeout(() => {
-          icon.classList.remove("bi-clipboard-check");
-          icon.classList.add("bi-clipboard");
-        }, 1800);
-      }
-    }
-
-    /*
-     * Animation to indicate copy.
-     * CodeMirror obscures the original textarea, and appends some DOM content
-     * as the next sibling. We want to flash THAT.
-     **/
-    const $putativeCmdiv = $source.nextElementSibling;
-    if (
-      $putativeCmdiv.tagName.toLowerCase() == "div" &&
-      $putativeCmdiv.classList.contains("CodeMirror")
-    ) {
-      const $divToFlash = $putativeCmdiv.querySelector(".CodeMirror-code");
-      // At one point there seemed to be a bug in Chrome which recomputes the
-      // font size, seemingly incorrectly, after removing the
-      // copy-to-clipboard-flash-bg class.
-
-      // Not sure if that is still happening.  If so, this logic should be
-      // changed to just leave the class there, and then remove it _prior_ to
-      // adding it the next time.
-
-      $divToFlash.classList.remove("copy-to-clipboard-flash-bg");
-      setTimeout(
-        (_) => $divToFlash.classList.add("copy-to-clipboard-flash-bg"),
-        6,
-      );
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(textToCopy);
+      success = true;
     } else {
-      // no codemirror (probably the secretkey field, which is just an input)
-      $source.classList.add("copy-to-clipboard-flash-bg");
-      setTimeout(
-        (_) => $source.classList.remove("copy-to-clipboard-flash-bg"),
-        1800,
-      );
+      const $temp = document.createElement("textarea");
+      $sel("body").appendChild($temp);
+      $temp.value = textToCopy;
+      $temp.select();
+      success = document.execCommand("copy");
+      $temp.parentNode.removeChild($temp);
+    }
+    if (success) {
+      flashCopySuccess(event, $source);
     }
   } catch (_e) {
     success = false;
   }
-  $temp.parentNode.removeChild($temp);
   return success;
 }
 
@@ -552,8 +557,6 @@ function encodeJwt(_event) {
       }
     }
   });
-  gtag("event", "encodeJwt");
-
   if (parseError) {
     setAlert("cannot parse JSON (" + parseError + ")", "warning");
     return;
@@ -756,11 +759,6 @@ function verifyJwt(event) {
       header = JSON.parse(json);
     let p = null;
 
-    gtag("event", "verifyJwt", {
-      event_category: "click",
-      event_label: `signed ${header.alg}`,
-    });
-
     if (isSymmetric(header.alg)) {
       p = getBufferForSymmetricKey("symmetrickey", header.alg)
         .then((keyBuffer) => checkKeyLength(header.alg, false, keyBuffer))
@@ -831,11 +829,6 @@ function verifyJwt(event) {
   if (matches && matches.length == 6) {
     const json = Buffer.from(matches[1], "base64").toString("utf8");
     const header = JSON.parse(json);
-    gtag("event", "verifyJwt", {
-      event_category: "click",
-      event_label: `encrypted ${header.alg}`,
-    });
-
     return retrieveCryptoKey(header, { direction: "decrypt" })
       .then(async (decryptionKey) => {
         const decrypter = await jose.JWE.createDecrypt(
@@ -910,17 +903,29 @@ function verifyJwt(event) {
   }
 }
 
-function setAlert(html, alertClass) {
-  const buttonHtml =
-      '<button type="button" class="close dismiss" data-dismiss="alert" aria-label="Close">\n' +
-      ' <span aria-hidden="true">&times;</span>\n' +
-      "</button>",
-    $mainalert = $sel("#mainalert");
+function setAlert(message, alertClass) {
+  const text = message instanceof Error ? message.message : String(message);
+  const $mainalert = $sel("#mainalert");
   let tid = $mainalert.getAttribute("data-tid");
   if (tid) {
     clearTimeout(Number(tid));
   }
-  $mainalert.innerHTML = `<div>${html}\n${buttonHtml}</div>`;
+  $mainalert.replaceChildren();
+  const wrapper = document.createElement("div");
+  const msg = document.createElement("span");
+  msg.textContent = text;
+  const dismissBtn = document.createElement("button");
+  dismissBtn.type = "button";
+  dismissBtn.className = "close dismiss";
+  dismissBtn.setAttribute("data-dismiss", "alert");
+  dismissBtn.setAttribute("aria-label", "Close");
+  const dismissIcon = document.createElement("span");
+  dismissIcon.setAttribute("aria-hidden", "true");
+  dismissIcon.textContent = "\u00d7";
+  dismissBtn.appendChild(dismissIcon);
+  wrapper.appendChild(msg);
+  wrapper.appendChild(dismissBtn);
+  $mainalert.appendChild(wrapper);
   if (alertClass) {
     $mainalert.classList.remove("alert-warning"); // this is the default
     $mainalert.classList.add("alert-" + alertClass); // success, primary, warning, etc
@@ -1028,11 +1033,6 @@ const getKeyUse = (alg) =>
 function newKey(event) {
   const alg = $sel(".sel-alg").selectedOptions[0].text;
 
-  gtag("event", "newKey", {
-    event_category: event ? "click" : "implicit",
-    event_label: alg,
-  });
-
   if (
     alg.startsWith("HS") ||
     alg.startsWith("PB") ||
@@ -1129,10 +1129,6 @@ function showDecoded(skipEncryptedPayload) {
 
   const tokenString = editors.encodedjwt.getValue();
   let matches = re.signed.jwt.exec(tokenString);
-
-  gtag("event", "decode", {
-    event_category: "click",
-  });
 
   saveSetting("encodedjwt", tokenString); // for reload
   $sel("#panel_encoded > p > span.length").textContent =
@@ -1446,10 +1442,6 @@ function onChangeEnc(event) {
   if (!initialized()) {
     return;
   }
-  gtag("event", "changeEnc", {
-    event_category: "click",
-    event_label: `${previousSelection} -> ${newSelection}`,
-  });
   if (alg == "dir" || alg.startsWith("PB")) {
     $all(".ta-key").forEach(($ta) => $ta.dispatchEvent(new Event("change")));
   }
@@ -1490,11 +1482,6 @@ function onChangeAlg(event) {
   if (!initialized()) {
     return;
   }
-  gtag("event", "changeAlg", {
-    event_category: "click",
-    event_label: `${previousSelection} -> ${newSelection}`,
-  });
-
   editors["token-decoded-header"].save();
   headerObj = getHeaderFromForm();
 
@@ -1553,10 +1540,6 @@ function onChangeVariant(event) {
 
   editors["token-decoded-header"].save();
 
-  gtag("event", "changeVariant", {
-    event_category: "click",
-    event_label: `${previousSelection} -> ${newSelection}`,
-  });
   if (newSelection != previousSelection) {
     try {
       const headerObj = getHeaderFromForm();
@@ -1642,14 +1625,12 @@ function newJson(event) {
     segment = target.getAttribute("data-jsontype"),
     jsonBlob = contriveJson(segment),
     elementId = `token-decoded-${segment}`;
-  gtag("event", "newJson", { segment });
   editors[elementId].setValue(JSON.stringify(jsonBlob, null, 2));
 }
 
 function contriveJwt(event) {
   const payload = contriveJson("payload"),
     header = contriveJson("header");
-  gtag("event", "contriveJwt");
   editors["token-decoded-header"].setValue(JSON.stringify(header));
   editors["token-decoded-payload"].setValue(JSON.stringify(payload));
   encodeJwt(event);
@@ -1685,7 +1666,7 @@ function decoratePayload(_instance) {
     const pop = new Popover(span, {
       placement: "right",
       trigger: "manual", // could not get 'hover' to work properly
-      html: true,
+      html: false,
       content: function () {
         const value = Number(span.getAttribute("data-time"));
         try {
@@ -1900,10 +1881,6 @@ document.addEventListener("DOMContentLoaded", function () {
        text: array of pasted strings
        } */
     if (event.origin == "paste") {
-      gtag("event", "paste", {
-        event_category: "encodedJwt",
-      });
-
       setTimeout(() => {
         removeNewlines(editors.encodedjwt);
         showDecoded();
@@ -1925,9 +1902,6 @@ document.addEventListener("DOMContentLoaded", function () {
       },
     );
     editors[keytype].on("inputRead", function (_cm, event) {
-      gtag("event", "paste", {
-        event_category: keytype,
-      });
       if (event.origin == "paste") {
         setTimeout(function () {
           const fieldvalue = reformNewlines(editors[keytype]);

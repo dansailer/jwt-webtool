@@ -39,7 +39,6 @@ function makeConfig(mode) {
         {
           test: /\.scss$/,
           use: [
-            "style-loader",
             {
               loader: MiniCssExtractPlugin.loader,
               options: {
@@ -56,10 +55,14 @@ function makeConfig(mode) {
 
     plugins: [
       new CopyPlugin({
-        patterns: [{ from: "src/index.html", to: "index.html" }],
-      }),
-      new CopyPlugin({
-        patterns: [{ from: "src/favicon.svg", to: "favicon.svg" }],
+        patterns: [
+          { from: "src/index.html", to: "index.html" },
+          { from: "src/favicon.svg", to: "favicon.svg" },
+          {
+            from: "src/assets/forkme_right_gray.png",
+            to: "assets/forkme_right_gray.png",
+          },
+        ],
       }),
 
       new MiniCssExtractPlugin({
