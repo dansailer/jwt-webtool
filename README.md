@@ -88,13 +88,13 @@ If you fork this repo to mess with the code, here's what I advise.
 Before you do anything you need to install the dependencies.
 
 ```
-npm install
+pnpm install
 ```
 
 To build a "development" distribution:
 
 ```
-npm run devbuild
+pnpm run devbuild
 ```
 
 This build will allow you to run the page and debug with the browser dev tools,
@@ -107,7 +107,7 @@ During development, I prefer to use the webpack "watch" capability, which
 rebuilds as I modify the source code. To do that, execute this in a terminal:
 
 ```
-npm run watch
+pnpm run watch
 ```
 
 The above command will run "forever", and will rebundle when any source file
@@ -119,12 +119,12 @@ updates.
 To build a production distribution:
 
 ```
-npm run build
+pnpm run build
 ```
 
 ## Warnings
 
-When you run `npm run build` or `npm run watch` you may see warnings, especiall
+When you run `pnpm run build` or `pnpm run watch` you may see warnings, especiall
 with regard to Bootstrap and its use of the deprecated `@import` rather than
 `@use`.  This is apparently benign. As of 2024 December 16, there is no
 workarund to avoid this. The scss compilation tool is suggesting to move away
